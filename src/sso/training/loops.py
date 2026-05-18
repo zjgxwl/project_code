@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable
 
 import torch
 from torch import nn
@@ -21,9 +21,13 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     max_batches: int | None = None,
+    method: Any | None = None,
 ) -> dict[str, float]:
     """Run one bounded training epoch."""
     model.train()
+    if method is not None:
+        method.before_train()
+
     total_loss = 0.0
     total_correct = 0
     total_samples = 0
@@ -38,7 +42,14 @@ def train_one_epoch(
         logits = model(inputs)
         loss = criterion(logits, targets)
         loss.backward()
+        if method is not None:
+            if hasattr(method, "after_backward"):
+                method.after_backward()
+            else:
+                method.mask_gradients()
         optimizer.step()
+        if method is not None:
+            method.after_optimizer_step()
 
         batch_size = targets.size(0)
         total_loss += _to_float(loss) * batch_size
@@ -57,9 +68,13 @@ def evaluate(
     criterion: nn.Module,
     device: torch.device,
     max_batches: int | None = None,
+    method: Any | None = None,
 ) -> dict[str, float]:
     """Run a bounded evaluation pass."""
     model.eval()
+    if method is not None:
+        method.apply_mask()
+
     total_loss = 0.0
     total_correct = 0
     total_samples = 0

@@ -1,5 +1,11 @@
 from sso.datasets import build_dataloaders
-from sso.methods import BaseSparseMethod, EGROMethod, TCSMMethod, TSPRMethod
+from sso.methods import (
+    BaseSparseMethod,
+    EGROMethod,
+    StandardSparseRetrainingMethod,
+    TCSMMethod,
+    TSPRMethod,
+)
 from sso.models import build_model, cifar_resnet18
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
 
@@ -18,3 +24,4 @@ def test_sparse_method_placeholders_import() -> None:
     assert issubclass(TSPRMethod, BaseSparseMethod)
     assert issubclass(TCSMMethod, BaseSparseMethod)
     assert issubclass(EGROMethod, BaseSparseMethod)
+    assert StandardSparseRetrainingMethod is not None
