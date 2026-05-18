@@ -41,5 +41,6 @@ The debug configuration uses CPU-friendly settings and `FakeData` by default, so
 ```powershell
 python scripts/debug_pruning.py --config configs/debug.yaml
 python scripts/train_sparse_retrain.py --config configs/debug.yaml --sparsity 0.9
+python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4
 python scripts/train_baseline.py --config configs/debug.yaml
 ```

@@ -22,6 +22,8 @@ def train_one_epoch(
     device: torch.device,
     max_batches: int | None = None,
     method: Any | None = None,
+    epoch: int = 0,
+    total_epochs: int = 1,
 ) -> dict[str, float]:
     """Run one bounded training epoch."""
     model.train()
@@ -40,19 +42,22 @@ def train_one_epoch(
 
         optimizer.zero_grad(set_to_none=True)
         logits = model(inputs)
-        loss = criterion(logits, targets)
+        task_loss = criterion(logits, targets)
+        loss = task_loss
+        if method is not None and hasattr(method, "regularization_loss"):
+            loss = loss + method.regularization_loss(epoch=epoch, total_epochs=total_epochs)
         loss.backward()
         if method is not None:
             if hasattr(method, "after_backward"):
                 method.after_backward()
-            else:
+            elif hasattr(method, "mask_gradients"):
                 method.mask_gradients()
         optimizer.step()
-        if method is not None:
+        if method is not None and hasattr(method, "after_optimizer_step"):
             method.after_optimizer_step()
 
         batch_size = targets.size(0)
-        total_loss += _to_float(loss) * batch_size
+        total_loss += _to_float(task_loss) * batch_size
         total_correct += int((logits.argmax(dim=1) == targets).sum().item())
         total_samples += batch_size
 

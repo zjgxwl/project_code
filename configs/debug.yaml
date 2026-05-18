@@ -29,5 +29,11 @@ pruning:
   scorer: magnitude
   sparsity: 0.9
 
+method:
+  name: tspr
+  lambda0: 0.0001
+  eps: 0.00000001
+  delta: 0.000000000001
+
 training:
   epochs: 1
