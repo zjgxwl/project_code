@@ -48,7 +48,7 @@ def main() -> None:
 
     train_loader = None
     criterion = None
-    if scorer == "snip":
+    if scorer in {"snip", "grasp"}:
         train_loader, _ = build_dataloaders(config)
         criterion = nn.CrossEntropyLoss()
 

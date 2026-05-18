@@ -65,7 +65,14 @@ def build_score_dict(
         input_shape = _infer_input_shape(config, dataloader)
         return synflow_score(model, input_shape=input_shape, device=device)
     if scorer_name == "grasp":
-        return grasp_score(model)
+        max_batches = int(pruning_config.get("score_batches", 1))
+        return grasp_score(
+            model,
+            dataloader=dataloader,
+            criterion=criterion,
+            device=device,
+            max_batches=max_batches,
+        )
     if scorer_name == "ep":
         return ep_score(model)
     raise ValueError(f"Unsupported pruning scorer: {scorer_name}")

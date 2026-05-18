@@ -42,9 +42,15 @@ The debug configuration uses CPU-friendly settings and `FakeData` by default, so
 python scripts/debug_pruning.py --config configs/debug.yaml --sparsity 0.9 --scorer magnitude
 python scripts/debug_pruning.py --config configs/debug.yaml --sparsity 0.9 --scorer snip
 python scripts/debug_pruning.py --config configs/debug.yaml --sparsity 0.9 --scorer synflow
+python scripts/debug_pruning.py --config configs/debug.yaml --sparsity 0.9 --scorer grasp
 python scripts/train_sparse_retrain.py --config configs/debug.yaml --sparsity 0.9
 python scripts/train_sparse_retrain.py --config configs/debug.yaml --sparsity 0.9 --scorer snip
+python scripts/train_sparse_retrain.py --config configs/debug.yaml --sparsity 0.9 --scorer grasp
 python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4
 python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4 --scorer snip
+python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4 --scorer grasp
 python scripts/train_baseline.py --config configs/debug.yaml
 ```
+
+The current GraSP scorer is a minimal second-order engineering loop for smoke
+tests and method comparison plumbing, not a full paper-level GraSP reproduction.

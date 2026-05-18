@@ -8,6 +8,7 @@ from sso.datasets import build_dataloaders
 from sso.models import build_model
 from sso.pruning import (
     build_score_dict,
+    grasp_score,
     iter_prunable_named_parameters,
     magnitude_score,
     snip_score,
@@ -111,10 +112,32 @@ def test_synflow_score_keys_shapes_nonnegative_and_restores_model() -> None:
     assert model.training == was_training
 
 
+def test_grasp_score_keys_shapes_nonnegative_and_restores_model() -> None:
+    config = _config()
+    model = build_model(config)
+    model.eval()
+    was_training = model.training
+    original_state = _state_clone(model)
+    train_loader, _ = build_dataloaders(config)
+
+    score_dict = grasp_score(
+        model,
+        dataloader=train_loader,
+        criterion=nn.CrossEntropyLoss(),
+        device=torch.device("cpu"),
+        max_batches=1,
+    )
+
+    _assert_score_shapes_and_nonnegative(model, score_dict)
+    _assert_state_unchanged(model, original_state)
+    _assert_no_gradients(model)
+    assert model.training == was_training
+
+
 def test_build_score_dict_selects_supported_scorers_without_mutating_config() -> None:
     base_config = _config()
 
-    for scorer in ("magnitude", "snip", "synflow"):
+    for scorer in ("magnitude", "snip", "synflow", "grasp"):
         config = copy.deepcopy(base_config)
         original_config = copy.deepcopy(config)
         config["pruning"]["scorer"] = scorer
@@ -135,9 +158,6 @@ def test_build_score_dict_selects_supported_scorers_without_mutating_config() ->
 def test_build_score_dict_rejects_unimplemented_and_unknown_scorers() -> None:
     config = _config()
     model = build_model(config)
-
-    with pytest.raises(NotImplementedError):
-        build_score_dict(model, config, scorer="grasp")
 
     with pytest.raises(NotImplementedError):
         build_score_dict(model, config, scorer="ep")

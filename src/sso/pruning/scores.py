@@ -125,9 +125,87 @@ def synflow_score(
         _restore_training_mode(model, was_training)
 
 
-def grasp_score(*_args: Any, **_kwargs: Any) -> dict[str, torch.Tensor]:
-    """Placeholder for future GraSP scores."""
-    raise NotImplementedError("TODO: implement GraSP scoring in a future chapter method.")
+def grasp_score(
+    model: nn.Module,
+    dataloader: Iterable | None,
+    criterion: nn.Module | None,
+    device: torch.device | str | None,
+    max_batches: int = 1,
+) -> dict[str, torch.Tensor]:
+    """Compute a minimal GraSP-style second-order score."""
+    if dataloader is None:
+        raise ValueError("grasp_score requires a dataloader.")
+    if criterion is None:
+        raise ValueError("grasp_score requires a criterion.")
+    if device is None:
+        raise ValueError("grasp_score requires a device.")
+
+    device = torch.device(device)
+    was_training = model.training
+    saved_state = {
+        name: tensor.detach().clone()
+        for name, tensor in model.state_dict().items()
+    }
+    model.zero_grad(set_to_none=True)
+    model.train()
+
+    try:
+        prunable_items = list(iter_prunable_named_parameters(model))
+        prunable_parameters = [parameter for _name, parameter in prunable_items]
+
+        total_loss: torch.Tensor | None = None
+        batch_count = 0
+        for batch_idx, (inputs, targets) in enumerate(dataloader):
+            if batch_idx >= max_batches:
+                break
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            logits = model(inputs)
+            loss = criterion(logits, targets)
+            total_loss = loss if total_loss is None else total_loss + loss
+            batch_count += 1
+
+        if total_loss is None or batch_count == 0:
+            raise ValueError("grasp_score received no batches from dataloader.")
+
+        average_loss = total_loss / batch_count
+        first_grads = torch.autograd.grad(
+            average_loss,
+            prunable_parameters,
+            create_graph=True,
+            allow_unused=True,
+        )
+        non_none_grads = [grad for grad in first_grads if grad is not None]
+        if not non_none_grads:
+            return {
+                name: torch.zeros_like(parameter)
+                for name, parameter in prunable_items
+            }
+
+        grad_flow = sum(grad.pow(2).sum() for grad in non_none_grads)
+        second_grads = torch.autograd.grad(
+            grad_flow,
+            prunable_parameters,
+            allow_unused=True,
+        )
+
+        score_dict: dict[str, torch.Tensor] = {}
+        for (name, parameter), first_grad, second_grad in zip(
+            prunable_items,
+            first_grads,
+            second_grads,
+            strict=True,
+        ):
+            if first_grad is None or second_grad is None:
+                score = torch.zeros_like(parameter)
+            else:
+                score = (parameter * second_grad).detach().abs().clone()
+            score_dict[name] = score
+        return score_dict
+    finally:
+        model.load_state_dict(saved_state, strict=True)
+        model.zero_grad(set_to_none=True)
+        model.train(was_training)
 
 
 def ep_score(*_args: Any, **_kwargs: Any) -> dict[str, torch.Tensor]:
