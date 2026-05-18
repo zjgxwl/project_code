@@ -39,8 +39,12 @@ pytest -q
 The debug configuration uses CPU-friendly settings and `FakeData` by default, so it does not require a GPU or dataset download.
 
 ```powershell
-python scripts/debug_pruning.py --config configs/debug.yaml
+python scripts/debug_pruning.py --config configs/debug.yaml --sparsity 0.9 --scorer magnitude
+python scripts/debug_pruning.py --config configs/debug.yaml --sparsity 0.9 --scorer snip
+python scripts/debug_pruning.py --config configs/debug.yaml --sparsity 0.9 --scorer synflow
 python scripts/train_sparse_retrain.py --config configs/debug.yaml --sparsity 0.9
+python scripts/train_sparse_retrain.py --config configs/debug.yaml --sparsity 0.9 --scorer snip
 python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4
+python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4 --scorer snip
 python scripts/train_baseline.py --config configs/debug.yaml
 ```

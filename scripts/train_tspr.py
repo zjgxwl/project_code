@@ -20,7 +20,7 @@ if str(SRC_ROOT) not in sys.path:
 from sso.datasets import build_dataloaders
 from sso.methods import TSPRMethod
 from sso.models import build_model
-from sso.pruning import compute_sparsity, global_topk_mask, magnitude_score
+from sso.pruning import build_score_dict, compute_sparsity, global_topk_mask
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
 
 
@@ -60,19 +60,22 @@ def resolve_lambda0(config: dict[str, Any], cli_lambda0: float | None) -> float:
     return float(config.get("method", {}).get("lambda0", 1e-4))
 
 
+def resolve_scorer(config: dict[str, Any], cli_scorer: str | None) -> str:
+    if cli_scorer is not None:
+        return cli_scorer.lower()
+    return str(config.get("pruning", {}).get("scorer", "magnitude")).lower()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run minimal TSPR training.")
     parser.add_argument("--config", type=Path, required=True, help="Path to a YAML config file.")
     parser.add_argument("--sparsity", type=float, default=None, help="Target pruning sparsity.")
     parser.add_argument("--lambda0", type=float, default=None, help="Initial TSPR regularization strength.")
+    parser.add_argument("--scorer", type=str, default=None, help="Pruning scorer to use.")
     args = parser.parse_args()
 
     config = load_config(args.config)
-    pruning_config = config.get("pruning", {})
-    scorer = pruning_config.get("scorer", "magnitude").lower()
-    if scorer != "magnitude":
-        raise ValueError(f"Unsupported TSPR scorer: {scorer}")
-
+    scorer = resolve_scorer(config, args.scorer)
     sparsity = resolve_sparsity(config, args.sparsity)
     method_config = config.get("method", {})
     lambda0 = resolve_lambda0(config, args.lambda0)
@@ -84,7 +87,15 @@ def main() -> None:
 
     train_loader, val_loader = build_dataloaders(config)
     model = build_model(config).to(device)
-    score_dict = magnitude_score(model)
+    criterion = nn.CrossEntropyLoss()
+    score_dict = build_score_dict(
+        model,
+        config,
+        dataloader=train_loader,
+        criterion=criterion,
+        device=device,
+        scorer=scorer,
+    )
     mask_dict = global_topk_mask(score_dict, sparsity=sparsity)
     method = TSPRMethod(
         model,
@@ -95,7 +106,6 @@ def main() -> None:
         delta=delta,
     )
 
-    criterion = nn.CrossEntropyLoss()
     optimizer = build_optimizer(model, config)
     fast_dev_run = bool(config.get("fast_dev_run", False))
     max_train_batches = int(config.get("max_train_batches", 2)) if fast_dev_run else None

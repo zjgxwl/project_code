@@ -28,6 +28,7 @@ optimizer:
 pruning:
   scorer: magnitude
   sparsity: 0.9
+  score_batches: 1
 
 method:
   name: tspr
