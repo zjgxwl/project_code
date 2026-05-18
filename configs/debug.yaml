@@ -1,0 +1,29 @@
+device: auto
+seed: 42
+fast_dev_run: true
+max_train_batches: 2
+max_val_batches: 2
+num_workers: 0
+use_fake_data: true
+
+dataset:
+  name: cifar10
+  data_dir: data
+  use_fake_data: true
+  num_classes: 10
+  image_size: 32
+  batch_size: 8
+  num_workers: 0
+
+model:
+  name: resnet18
+  num_classes: 10
+
+optimizer:
+  name: sgd
+  lr: 0.01
+  momentum: 0.9
+  weight_decay: 0.0005
+
+training:
+  epochs: 1
