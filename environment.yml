@@ -1,0 +1,12 @@
+name: sso
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pyyaml
+  - pytest
+  - numpy
+  - tqdm
+  - matplotlib
+  - pandas
