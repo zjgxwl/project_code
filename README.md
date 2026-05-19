@@ -34,6 +34,23 @@ python -m pip install -e .
 pytest -q
 ```
 
+## Result Logging
+
+Experiment scripts keep their default smoke-test behavior unless
+`--save-metrics` is passed. Saved metrics are written under `outputs/runs/` as
+one JSON file per run plus an appended `metrics.jsonl` file.
+
+```powershell
+python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4 --scorer snip --save-metrics
+python scripts/debug_tcsm.py --config configs/debug.yaml --scorer snip --sparsity 0.9 --save-metrics
+python scripts/export_egro_vgg.py --config configs/debug.yaml --model vgg11_bn --scorer snip --flops-reduction 0.5 --save-metrics
+python scripts/collect_results.py --input outputs/runs/metrics.jsonl --output outputs/paper_assets/results_summary.csv
+```
+
+The `outputs/` directory is a runtime artifact location and is not intended for
+source control by default. `outputs/paper_assets/` is only an entry point for
+paper result assets; it does not automatically modify any LaTeX thesis files.
+
 ## Smoke Test
 
 The debug configuration uses CPU-friendly settings and `FakeData` by default, so it does not require a GPU or dataset download.

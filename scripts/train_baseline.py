@@ -20,6 +20,7 @@ if str(SRC_ROOT) not in sys.path:
 from sso.datasets import build_dataloaders
 from sso.models import build_model
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
+from sso.utils import build_run_name, get_timestamp, save_metrics
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -49,6 +50,9 @@ def build_optimizer(model: nn.Module, config: dict[str, Any]) -> torch.optim.Opt
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a minimal baseline training smoke test.")
     parser.add_argument("--config", type=Path, required=True, help="Path to a YAML config file.")
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
+    parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
+    parser.add_argument("--save-metrics", action="store_true", help="Save metrics JSON/JSONL.")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -85,6 +89,31 @@ def main() -> None:
     print(f"train_acc: {train_metrics['accuracy']:.4f}")
     print(f"val_loss: {val_metrics['loss']:.4f}")
     print(f"val_acc: {val_metrics['accuracy']:.4f}")
+    if args.save_metrics:
+        run_name = args.run_name or build_run_name(
+            method="baseline",
+            model=config.get("model", {}).get("name", "resnet18"),
+        )
+        metrics_path = save_metrics(
+            {
+                "script": "train_baseline.py",
+                "method": "baseline",
+                "model": config.get("model", {}).get("name", "resnet18"),
+                "scorer": None,
+                "device": str(device),
+                "seed": int(config.get("seed", 42)),
+                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
+                "fast_dev_run": bool(config.get("fast_dev_run", False)),
+                "timestamp": get_timestamp(),
+                "train_loss": train_metrics["loss"],
+                "train_acc": train_metrics["accuracy"],
+                "val_loss": val_metrics["loss"],
+                "val_acc": val_metrics["accuracy"],
+            },
+            output_dir=args.output_dir,
+            run_name=run_name,
+        )
+        print(f"metrics_saved: {metrics_path}")
 
 
 if __name__ == "__main__":

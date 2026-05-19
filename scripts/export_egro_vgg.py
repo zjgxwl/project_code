@@ -24,6 +24,7 @@ from sso.methods import EGROMethod, EGROTrainingMethod, TCSMMethod
 from sso.models import build_model
 from sso.pruning import build_score_dict
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
+from sso.utils import build_run_name, get_timestamp, save_metrics
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -143,6 +144,9 @@ def main() -> None:
     parser.add_argument("--flops-reduction", type=float, default=None, help="Target Conv FLOPs reduction.")
     parser.add_argument("--lambda0", type=float, default=None, help="Initial EGRO group regularization strength.")
     parser.add_argument("--skip-train", action="store_true", help="Export directly from Stage-1 group mask.")
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
+    parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
+    parser.add_argument("--save-metrics", action="store_true", help="Save metrics JSON/JSONL.")
     args = parser.parse_args()
 
     model_name = args.model.lower()
@@ -243,6 +247,48 @@ def main() -> None:
     print(f"flops_reduction_est: {metrics['flops_reduction']:.6f}")
     print(f"slim_val_loss: {slim_metrics['loss']:.4f}")
     print(f"slim_val_acc: {slim_metrics['accuracy']:.4f}")
+    if args.save_metrics:
+        run_name = args.run_name or build_run_name(
+            method="egro_vgg_export",
+            scorer=scorer,
+            model=model_name,
+            sparsity=sparsity,
+            flops_reduction=flops_reduction,
+        )
+        metrics_path = save_metrics(
+            {
+                "script": "export_egro_vgg.py",
+                "method": "egro_stage3a",
+                "model": model_name,
+                "scorer": scorer,
+                "device": str(device),
+                "seed": int(config.get("seed", 42)),
+                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
+                "fast_dev_run": bool(config.get("fast_dev_run", False)),
+                "timestamp": get_timestamp(),
+                "sparsity": sparsity,
+                "target_flops_reduction": metrics["target_flops_reduction"],
+                "actual_flops_reduction": metrics["flops_reduction"],
+                "total_groups": metrics["total_groups"],
+                "kept_groups": metrics["kept_groups"],
+                "dropped_groups": metrics["dropped_groups"],
+                "param_reduction": metrics["param_reduction"],
+                "total_conv_flops": metrics["total_conv_flops"],
+                "kept_conv_flops": metrics["kept_conv_flops"],
+                "lambda0": lambda0,
+                "original_params": original_params,
+                "slim_params": slim_params,
+                "param_reduction_actual": param_reduction_actual,
+                "original_conv_flops_est": metrics["total_conv_flops"],
+                "kept_conv_flops_est": metrics["kept_conv_flops"],
+                "flops_reduction_est": metrics["flops_reduction"],
+                "slim_val_loss": slim_metrics["loss"],
+                "slim_val_acc": slim_metrics["accuracy"],
+            },
+            output_dir=args.output_dir,
+            run_name=run_name,
+        )
+        print(f"metrics_saved: {metrics_path}")
 
 
 if __name__ == "__main__":

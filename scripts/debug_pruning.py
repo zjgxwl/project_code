@@ -21,6 +21,7 @@ from sso.datasets import build_dataloaders
 from sso.models import build_model
 from sso.pruning import build_score_dict, compute_sparsity, global_topk_mask
 from sso.training import resolve_device, set_seed
+from sso.utils import build_run_name, get_timestamp, save_metrics
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -39,6 +40,9 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True, help="Path to a YAML config file.")
     parser.add_argument("--sparsity", type=float, default=0.9, help="Target pruning sparsity.")
     parser.add_argument("--scorer", type=str, default=None, help="Pruning scorer to use.")
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
+    parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
+    parser.add_argument("--save-metrics", action="store_true", help="Save metrics JSON/JSONL.")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -68,6 +72,32 @@ def main() -> None:
     print(f"total_params: {total_params}")
     print(f"kept_params: {kept_params}")
     print(f"sparsity: {compute_sparsity(masks):.6f}")
+    if args.save_metrics:
+        run_name = args.run_name or build_run_name(
+            method="debug_pruning",
+            scorer=scorer,
+            model=config.get("model", {}).get("name", "resnet18"),
+            sparsity=args.sparsity,
+        )
+        metrics_path = save_metrics(
+            {
+                "script": "debug_pruning.py",
+                "method": "debug_pruning",
+                "model": config.get("model", {}).get("name", "resnet18"),
+                "scorer": scorer,
+                "device": str(device),
+                "seed": int(config.get("seed", 42)),
+                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
+                "fast_dev_run": bool(config.get("fast_dev_run", False)),
+                "timestamp": get_timestamp(),
+                "sparsity": compute_sparsity(masks),
+                "total_params": total_params,
+                "kept_params": kept_params,
+            },
+            output_dir=args.output_dir,
+            run_name=run_name,
+        )
+        print(f"metrics_saved: {metrics_path}")
 
 
 if __name__ == "__main__":

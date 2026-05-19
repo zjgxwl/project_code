@@ -22,6 +22,7 @@ from sso.methods import StandardSparseRetrainingMethod
 from sso.models import build_model
 from sso.pruning import build_score_dict, compute_sparsity, global_topk_mask
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
+from sso.utils import build_run_name, get_timestamp, save_metrics
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -65,6 +66,9 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True, help="Path to a YAML config file.")
     parser.add_argument("--sparsity", type=float, default=None, help="Target pruning sparsity.")
     parser.add_argument("--scorer", type=str, default=None, help="Pruning scorer to use.")
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
+    parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
+    parser.add_argument("--save-metrics", action="store_true", help="Save metrics JSON/JSONL.")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -116,6 +120,38 @@ def main() -> None:
     print(f"train_acc: {train_metrics['accuracy']:.4f}")
     print(f"val_loss: {val_metrics['loss']:.4f}")
     print(f"val_acc: {val_metrics['accuracy']:.4f}")
+    if args.save_metrics:
+        run_name = args.run_name or build_run_name(
+            method="sparse_retrain",
+            scorer=scorer,
+            model=config.get("model", {}).get("name", "resnet18"),
+            sparsity=sparsity,
+        )
+        total_params = sum(mask.numel() for mask in method.mask_state_dict().values())
+        kept_params = sum(int(mask.count_nonzero().item()) for mask in method.mask_state_dict().values())
+        metrics_path = save_metrics(
+            {
+                "script": "train_sparse_retrain.py",
+                "method": "sparse_retrain",
+                "model": config.get("model", {}).get("name", "resnet18"),
+                "scorer": scorer,
+                "device": str(device),
+                "seed": int(config.get("seed", 42)),
+                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
+                "fast_dev_run": bool(config.get("fast_dev_run", False)),
+                "timestamp": get_timestamp(),
+                "sparsity": compute_sparsity(method.mask_state_dict()),
+                "total_params": total_params,
+                "kept_params": kept_params,
+                "train_loss": train_metrics["loss"],
+                "train_acc": train_metrics["accuracy"],
+                "val_loss": val_metrics["loss"],
+                "val_acc": val_metrics["accuracy"],
+            },
+            output_dir=args.output_dir,
+            run_name=run_name,
+        )
+        print(f"metrics_saved: {metrics_path}")
 
 
 if __name__ == "__main__":

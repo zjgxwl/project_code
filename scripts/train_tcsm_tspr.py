@@ -22,6 +22,7 @@ from sso.methods import TCSMMethod, TSPRMethod
 from sso.models import build_model
 from sso.pruning import build_score_dict
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
+from sso.utils import build_run_name, get_timestamp, save_metrics
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -98,6 +99,9 @@ def main() -> None:
     parser.add_argument("--scorer", type=str, default=None, help="Base pruning scorer to use.")
     parser.add_argument("--sparsity", type=float, default=None, help="Target pruning sparsity.")
     parser.add_argument("--lambda0", type=float, default=None, help="Initial TSPR regularization strength.")
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
+    parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
+    parser.add_argument("--save-metrics", action="store_true", help="Save metrics JSON/JSONL.")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -176,6 +180,39 @@ def main() -> None:
     print(f"train_acc: {train_metrics['accuracy']:.4f}")
     print(f"val_loss: {val_metrics['loss']:.4f}")
     print(f"val_acc: {val_metrics['accuracy']:.4f}")
+    if args.save_metrics:
+        run_name = args.run_name or build_run_name(
+            method="tcsm_tspr",
+            scorer=scorer,
+            model=config.get("model", {}).get("name", "resnet18"),
+            sparsity=sparsity,
+        )
+        metrics_path = save_metrics(
+            {
+                "script": "train_tcsm_tspr.py",
+                "method": "tcsm_tspr",
+                "model": config.get("model", {}).get("name", "resnet18"),
+                "scorer": scorer,
+                "device": str(device),
+                "seed": int(config.get("seed", 42)),
+                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
+                "fast_dev_run": bool(config.get("fast_dev_run", False)),
+                "timestamp": get_timestamp(),
+                "sparsity": sparsity,
+                "stable_sparsity": tcsm_output.metrics["sparsity"],
+                "base_stable_jaccard": tcsm_output.metrics["base_stable_jaccard"],
+                "mean_stable_score": tcsm_output.metrics["mean_stable_score"],
+                "mean_stable_omega": tcsm_output.metrics["mean_stable_omega"],
+                "lambda0": lambda0,
+                "train_loss": train_metrics["loss"],
+                "train_acc": train_metrics["accuracy"],
+                "val_loss": val_metrics["loss"],
+                "val_acc": val_metrics["accuracy"],
+            },
+            output_dir=args.output_dir,
+            run_name=run_name,
+        )
+        print(f"metrics_saved: {metrics_path}")
 
 
 if __name__ == "__main__":
