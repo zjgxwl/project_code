@@ -7,6 +7,8 @@ from typing import Any
 from torch import nn
 from torchvision.models import resnet18
 
+from .vgg import cifar_vgg11_bn
+
 
 def cifar_resnet18(num_classes: int = 10) -> nn.Module:
     """Build a ResNet-18 variant adapted for 32x32 CIFAR inputs."""
@@ -25,4 +27,6 @@ def build_model(config: dict[str, Any]) -> nn.Module:
 
     if name == "resnet18":
         return cifar_resnet18(num_classes=num_classes)
+    if name == "vgg11_bn":
+        return cifar_vgg11_bn(num_classes=num_classes)
     raise ValueError(f"Unsupported model: {name}")

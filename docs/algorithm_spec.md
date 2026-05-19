@@ -102,6 +102,17 @@ This document defines engineering interfaces for future algorithm work. It is no
 - `BaseSparseMethod.step(...)`
 - `EGROMethod(BaseSparseMethod)`
 
+### Current engineering stages
+
+- Stage-1: Conv2d output-channel groups, group-level scores, group masks, and
+  FLOPs/parameter estimates.
+- Stage-2: Group-level partial regularization training and same-shape
+  group-masked `state_dict` export.
+- Stage-3a: Project-local VGG-style serial CNN slim model export for
+  Conv-BN-ReLU stacks.
+- Stage-3b: ResNet or DepGraph-like dependency closure is reserved for future
+  work and is not implemented.
+
 ### Expected files
 
 - `src/sso/methods/egro.py`
