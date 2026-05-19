@@ -49,8 +49,15 @@ python scripts/train_sparse_retrain.py --config configs/debug.yaml --sparsity 0.
 python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4
 python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4 --scorer snip
 python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4 --scorer grasp
+python scripts/debug_tcsm.py --config configs/debug.yaml --scorer snip --sparsity 0.9
+python scripts/train_tcsm_tspr.py --config configs/debug.yaml --scorer snip --sparsity 0.9 --lambda0 1e-4
 python scripts/train_baseline.py --config configs/debug.yaml
 ```
 
 The current GraSP scorer is a minimal second-order engineering loop for smoke
 tests and method comparison plumbing, not a full paper-level GraSP reproduction.
+
+The current TCSM path is also a minimal engineering loop. It uses FakeData and
+small calibration batches to simulate lightweight observations, and does not
+include data condensation, random real subsets, full-data calibration, or a
+full Chapter 4 experimental reproduction.

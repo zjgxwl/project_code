@@ -36,5 +36,13 @@ method:
   eps: 0.00000001
   delta: 0.000000000001
 
+tcsm:
+  alpha: 0.5
+  beta: 0.5
+  eta: 0.05
+  delta: 0.000000000001
+  calibration_batches: 1
+  sign_batches: 1
+
 training:
   epochs: 1
