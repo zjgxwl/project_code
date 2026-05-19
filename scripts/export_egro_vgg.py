@@ -24,7 +24,7 @@ from sso.methods import EGROMethod, EGROTrainingMethod, TCSMMethod
 from sso.models import build_model
 from sso.pruning import build_score_dict
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
-from sso.utils import build_run_name, get_timestamp, save_metrics
+from sso.utils import add_data_args, apply_data_overrides, build_run_name, dataset_record_fields, get_timestamp, save_metrics
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -147,6 +147,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
     parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
     parser.add_argument("--save-metrics", action="store_true", help="Save metrics JSON/JSONL.")
+    add_data_args(parser)
     args = parser.parse_args()
 
     model_name = args.model.lower()
@@ -155,6 +156,7 @@ def main() -> None:
 
     base_config = load_config(args.config)
     config = config_with_model(base_config, model_name)
+    apply_data_overrides(config, args)
     scorer = resolve_scorer(config, args.scorer)
     sparsity = resolve_sparsity(config, args.sparsity)
     flops_reduction = resolve_flops_reduction(config, args.flops_reduction)
@@ -266,6 +268,7 @@ def main() -> None:
                 "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
                 "fast_dev_run": bool(config.get("fast_dev_run", False)),
                 "timestamp": get_timestamp(),
+                **dataset_record_fields(config),
                 "sparsity": sparsity,
                 "target_flops_reduction": metrics["target_flops_reduction"],
                 "actual_flops_reduction": metrics["flops_reduction"],

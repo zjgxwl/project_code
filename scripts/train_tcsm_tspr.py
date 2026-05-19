@@ -22,7 +22,7 @@ from sso.methods import TCSMMethod, TSPRMethod
 from sso.models import build_model
 from sso.pruning import build_score_dict
 from sso.training import evaluate, resolve_device, set_seed, train_one_epoch
-from sso.utils import build_run_name, get_timestamp, save_metrics
+from sso.utils import add_data_args, apply_data_overrides, build_run_name, dataset_record_fields, get_timestamp, save_metrics
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -102,9 +102,11 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
     parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
     parser.add_argument("--save-metrics", action="store_true", help="Save metrics JSON/JSONL.")
+    add_data_args(parser)
     args = parser.parse_args()
 
     config = load_config(args.config)
+    apply_data_overrides(config, args)
     scorer = resolve_scorer(config, args.scorer)
     sparsity = resolve_sparsity(config, args.sparsity)
     lambda0 = resolve_lambda0(config, args.lambda0)
@@ -198,6 +200,7 @@ def main() -> None:
                 "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
                 "fast_dev_run": bool(config.get("fast_dev_run", False)),
                 "timestamp": get_timestamp(),
+                **dataset_record_fields(config),
                 "sparsity": sparsity,
                 "stable_sparsity": tcsm_output.metrics["sparsity"],
                 "base_stable_jaccard": tcsm_output.metrics["base_stable_jaccard"],

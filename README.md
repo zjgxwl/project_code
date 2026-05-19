@@ -51,6 +51,33 @@ The `outputs/` directory is a runtime artifact location and is not intended for
 source control by default. `outputs/paper_assets/` is only an entry point for
 paper result assets; it does not automatically modify any LaTeX thesis files.
 
+## Dataset Download Smoke Test
+
+The default debug config still uses `FakeData` and never downloads datasets.
+Real dataset smoke runs require `--real-data`, and torchvision/Tiny-ImageNet
+downloads require the explicit `--download` flag.
+
+```powershell
+python scripts/train_baseline.py --config configs/cifar10_download_smoke.yaml --real-data --download --data-dir data
+python scripts/debug_pruning.py --config configs/cifar10_download_smoke.yaml --real-data --download --data-dir data --scorer snip --sparsity 0.9 --save-metrics
+python scripts/train_tspr.py --config configs/cifar10_download_smoke.yaml --real-data --download --data-dir data --scorer snip --sparsity 0.9 --lambda0 1e-4 --save-metrics
+python scripts/debug_tcsm.py --config configs/cifar10_download_smoke.yaml --real-data --download --data-dir data --scorer snip --sparsity 0.9 --save-metrics
+python scripts/export_egro_vgg.py --config configs/cifar10_download_smoke.yaml --real-data --download --data-dir data --model vgg11_bn --scorer snip --flops-reduction 0.5 --save-metrics
+```
+
+Tiny-ImageNet smoke runs are also opt-in. The archive is large and download can
+fail on unstable networks; if that happens, manually download the zip and set
+`dataset.archive_path`, or extract it to `data/tiny-imagenet-200`.
+
+```powershell
+python scripts/train_baseline.py --config configs/tiny_imagenet_download_smoke.yaml --real-data --download --data-dir data
+python scripts/train_tspr.py --config configs/tiny_imagenet_download_smoke.yaml --real-data --download --data-dir data --scorer snip --sparsity 0.9 --lambda0 1e-4
+```
+
+The `data/` and `outputs/` directories are runtime artifact locations and are
+not intended for source control. These commands run only a few batches for
+format and pipeline validation; they are not full experiments.
+
 ## Smoke Test
 
 The debug configuration uses CPU-friendly settings and `FakeData` by default, so it does not require a GPU or dataset download.
