@@ -51,6 +51,7 @@ python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda
 python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda0 1e-4 --scorer grasp
 python scripts/debug_tcsm.py --config configs/debug.yaml --scorer snip --sparsity 0.9
 python scripts/train_tcsm_tspr.py --config configs/debug.yaml --scorer snip --sparsity 0.9 --lambda0 1e-4
+python scripts/debug_egro.py --config configs/debug.yaml --scorer snip --flops-reduction 0.5
 python scripts/train_baseline.py --config configs/debug.yaml
 ```
 
@@ -61,3 +62,11 @@ The current TCSM path is also a minimal engineering loop. It uses FakeData and
 small calibration batches to simulate lightweight observations, and does not
 include data condensation, random real subsets, full-data calibration, or a
 full Chapter 4 experimental reproduction.
+
+The current EGRO path is a Stage-1 minimal engineering loop. It only implements
+Conv2d output-channel group modeling, group-level score aggregation, Conv FLOPs
+estimation, and group mask generation. It does not perform real structured
+model export, BatchNorm synchronization, next-layer input-channel pruning,
+residual-branch synchronization, dependency-closure rewriting, or group-level
+partial regularization training. The `safety_beta` option is reserved for later
+extensions and is not used by the Stage-1 safety bound.
