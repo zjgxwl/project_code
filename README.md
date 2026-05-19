@@ -52,6 +52,7 @@ python scripts/train_tspr.py --config configs/debug.yaml --sparsity 0.9 --lambda
 python scripts/debug_tcsm.py --config configs/debug.yaml --scorer snip --sparsity 0.9
 python scripts/train_tcsm_tspr.py --config configs/debug.yaml --scorer snip --sparsity 0.9 --lambda0 1e-4
 python scripts/debug_egro.py --config configs/debug.yaml --scorer snip --flops-reduction 0.5
+python scripts/train_egro.py --config configs/debug.yaml --scorer snip --flops-reduction 0.5 --lambda0 1e-4
 python scripts/train_baseline.py --config configs/debug.yaml
 ```
 
@@ -70,3 +71,10 @@ model export, BatchNorm synchronization, next-layer input-channel pruning,
 residual-branch synchronization, dependency-closure rewriting, or group-level
 partial regularization training. The `safety_beta` option is reserved for later
 extensions and is not used by the Stage-1 safety bound.
+
+The current EGRO Stage-2 path only implements group-level partial
+regularization training and same-shape group-masked state dict export for smoke
+evaluation. It still does not perform slim model export, dependency-consistent
+rewriting, BatchNorm synchronization, next-layer input-channel pruning, or
+residual-branch synchronization, and it does not represent real deployment
+speedup.

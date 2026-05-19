@@ -6,6 +6,7 @@ import math
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from torch import nn
@@ -277,3 +278,151 @@ class EGROMethod(BaseSparseMethod):
             metrics=metrics,
             groups=groups,
         )
+
+
+class EGROTrainingMethod(BaseSparseMethod):
+    """EGRO Stage-2 group-level partial regularization.
+
+    Stage-2 keeps the model structure unchanged during training. Dropped groups
+    are regularized toward their initialization and are only zeroed in the
+    exported group-masked state dict. The export keeps the original model shape
+    and does not provide real deployment acceleration.
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        groups: list[StructureGroup],
+        group_mask: Mapping[str, int | bool],
+        group_omega: Mapping[str, float],
+        lambda0: float = 1e-4,
+        delta: float = 1e-12,
+    ) -> None:
+        super().__init__()
+        self.model = model
+        self.groups = list(groups)
+        self.lambda0 = float(lambda0)
+        self.delta = float(delta)
+        self.fixed_group_mask: dict[str, int] = {}
+        self.group_omega: dict[str, float] = {}
+        self.initial_group_state: dict[str, torch.Tensor] = {}
+
+        modules = dict(model.named_modules())
+        for group in self.groups:
+            if group.group_id not in group_mask:
+                raise ValueError(f"Missing group mask for {group.group_id}.")
+            if group.group_id not in group_omega:
+                raise ValueError(f"Missing group omega for {group.group_id}.")
+
+            mask_value = int(group_mask[group.group_id])
+            if mask_value not in {0, 1}:
+                raise ValueError(f"Group mask for {group.group_id} must be 0 or 1.")
+            omega_value = float(group_omega[group.group_id])
+            if not math.isfinite(omega_value) or omega_value <= 0.0:
+                raise ValueError(f"Group omega for {group.group_id} must be finite and positive.")
+
+            module = modules.get(group.layer_name)
+            if not isinstance(module, nn.Conv2d):
+                raise ValueError(f"Group {group.group_id} does not map to a Conv2d layer.")
+            if group.out_channel < 0 or group.out_channel >= int(module.out_channels):
+                raise ValueError(f"Group {group.group_id} has invalid output channel.")
+
+            self.fixed_group_mask[group.group_id] = mask_value
+            self.group_omega[group.group_id] = omega_value
+            self.initial_group_state[group.group_id] = (
+                module.weight[group.out_channel].detach().clone().requires_grad_(False)
+            )
+
+    def _model_device(self) -> torch.device:
+        try:
+            return next(self.model.parameters()).device
+        except StopIteration:
+            return torch.device("cpu")
+
+    def _conv_modules(self) -> dict[str, nn.Conv2d]:
+        return {
+            name: module
+            for name, module in self.model.named_modules()
+            if isinstance(module, nn.Conv2d)
+        }
+
+    def _iter_groups(self) -> list[tuple[StructureGroup, nn.Conv2d]]:
+        modules = self._conv_modules()
+        items: list[tuple[StructureGroup, nn.Conv2d]] = []
+        for group in self.groups:
+            module = modules.get(group.layer_name)
+            if module is None:
+                raise ValueError(f"Group {group.group_id} does not map to a Conv2d layer.")
+            if group.out_channel >= int(module.out_channels):
+                raise ValueError(f"Group {group.group_id} has invalid output channel.")
+            items.append((group, module))
+        return items
+
+    def before_train(self) -> None:
+        """EGRO Stage-2 does not hard-mask or rewrite model structure."""
+
+    def lambda_at(self, epoch: int, total_epochs: int) -> float:
+        """Cosine annealed group regularization strength."""
+        if total_epochs <= 0:
+            progress = 1.0
+        else:
+            progress = float(epoch) / float(total_epochs)
+            progress = max(0.0, min(progress, 1.0))
+        return self.lambda0 * 0.5 * (1.0 + math.cos(math.pi * progress))
+
+    def regularization_loss(self, epoch: int, total_epochs: int) -> torch.Tensor:
+        """Return lambda-weighted regularization over dropped Conv2d groups."""
+        model_device = self._model_device()
+        reg_loss = torch.zeros((), device=model_device)
+        has_dropped_group = False
+
+        for group, module in self._iter_groups():
+            if self.fixed_group_mask[group.group_id] != 0:
+                continue
+            has_dropped_group = True
+            weight = module.weight[group.out_channel]
+            initial = self.initial_group_state[group.group_id].to(
+                device=weight.device,
+                dtype=weight.dtype,
+            )
+            omega = self.group_omega[group.group_id]
+            reg_loss = reg_loss + omega * torch.sum((weight - initial).square())
+
+        if not has_dropped_group:
+            return torch.zeros((), device=model_device)
+        return reg_loss * self.lambda_at(epoch=epoch, total_epochs=total_epochs)
+
+    def export_group_masked_state_dict(self) -> dict[str, torch.Tensor]:
+        """Return a group-masked full state dict without mutating the model."""
+        state = {
+            name: tensor.detach().clone()
+            for name, tensor in self.model.state_dict().items()
+        }
+        for group, module in self._iter_groups():
+            if self.fixed_group_mask[group.group_id] != 0:
+                continue
+            weight_key = f"{group.layer_name}.weight" if group.layer_name else "weight"
+            state[weight_key][group.out_channel].zero_()
+            if module.bias is not None:
+                bias_key = f"{group.layer_name}.bias" if group.layer_name else "bias"
+                if bias_key in state:
+                    state[bias_key][group.out_channel].zero_()
+        return state
+
+    def method_state_dict(self) -> dict[str, Any]:
+        """Return EGRO Stage-2 method state, not ``model.state_dict()``."""
+        return {
+            "lambda0": self.lambda0,
+            "delta": self.delta,
+            "fixed_group_mask": dict(self.fixed_group_mask),
+            "group_omega": dict(self.group_omega),
+            "groups": list(self.groups),
+            "initial_group_state": {
+                group_id: state.detach().clone()
+                for group_id, state in self.initial_group_state.items()
+            },
+        }
+
+    def state_dict(self) -> dict[str, Any]:
+        """Return method state only; this is not ``model.state_dict()``."""
+        return self.method_state_dict()
