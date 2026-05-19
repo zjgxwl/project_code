@@ -1,0 +1,18 @@
+{
+  "device": "cuda",
+  "fast_dev_run": true,
+  "lambda0": 0.0001,
+  "method": "tspr",
+  "model": "resnet18",
+  "run_name": "tspr_model-resnet18_scorer-snip_sparsity-0.9_20260519T064241Z",
+  "scorer": "snip",
+  "script": "train_tspr.py",
+  "seed": 42,
+  "sparsity": 0.9000000179141611,
+  "timestamp": "20260519T064241Z",
+  "train_acc": 0.1875,
+  "train_loss": 2.448132038116455,
+  "use_fake_data": true,
+  "val_acc": 0.125,
+  "val_loss": 2.2859158515930176
+}

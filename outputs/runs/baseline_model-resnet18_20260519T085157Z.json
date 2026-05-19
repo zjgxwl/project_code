@@ -1,0 +1,22 @@
+{
+  "data_dir": "data",
+  "dataset": "cifar10",
+  "dataset_use_fake_data": false,
+  "device": "cuda",
+  "download": true,
+  "fast_dev_run": true,
+  "method": "baseline",
+  "model": "resnet18",
+  "run_name": "baseline_model-resnet18_20260519T085157Z",
+  "scorer": null,
+  "script": "train_baseline.py",
+  "seed": 42,
+  "timestamp": "20260519T085157Z",
+  "train_acc": 0.25,
+  "train_loss": 2.28583824634552,
+  "train_subset_size": 128,
+  "use_fake_data": false,
+  "val_acc": 0.125,
+  "val_loss": 2.281815767288208,
+  "val_subset_size": 64
+}

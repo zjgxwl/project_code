@@ -1,0 +1,17 @@
+{
+  "base_stable_jaccard": 0.5836170842018439,
+  "device": "cuda",
+  "fast_dev_run": true,
+  "mean_stable_omega": 12.435307318405885,
+  "mean_stable_score": 1.0111101995201679e-07,
+  "method": "tcsm",
+  "model": "resnet18",
+  "run_name": "tcsm_debug_model-resnet18_scorer-snip_sparsity-0.9_20260519T064309Z",
+  "scorer": "snip",
+  "script": "debug_tcsm.py",
+  "seed": 42,
+  "sparsity": 0.9,
+  "stable_sparsity": 0.9000000179141611,
+  "timestamp": "20260519T064309Z",
+  "use_fake_data": true
+}
