@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
+from sso.metrics import mask_jaccard, score_rank_correlation
 from sso.pruning import compute_sparsity, global_topk_mask, iter_prunable_named_parameters
 from .base import BaseSparseMethod
 
@@ -22,7 +23,7 @@ class TCSMOutput:
     stable_score_dict: dict[str, torch.Tensor]
     stable_mask_dict: dict[str, torch.Tensor]
     stable_omega_dict: dict[str, torch.Tensor]
-    metrics: dict[str, float]
+    metrics: dict[str, object]
 
 
 class TCSMMethod(BaseSparseMethod):
@@ -42,6 +43,8 @@ class TCSMMethod(BaseSparseMethod):
         delta: float = 1e-12,
         calibration_batches: int = 1,
         sign_batches: int = 1,
+        calibration_mode: str = "tcsm",
+        stability_repeats: int = 1,
     ) -> None:
         super().__init__()
         if dataloader is None:
@@ -66,6 +69,18 @@ class TCSMMethod(BaseSparseMethod):
         self.delta = float(delta)
         self.calibration_batches = int(calibration_batches)
         self.sign_batches = int(sign_batches)
+        self.calibration_mode = calibration_mode.lower().replace("-", "_")
+        self.stability_repeats = int(stability_repeats)
+
+        supported_modes = {"tcsm", "base_only", "random_subset", "full_data"}
+        if self.calibration_mode not in supported_modes:
+            raise ValueError(f"Unsupported TCSM calibration_mode: {calibration_mode}")
+        if self.calibration_batches < 0:
+            raise ValueError("calibration_batches must be non-negative.")
+        if self.sign_batches < 0:
+            raise ValueError("sign_batches must be non-negative.")
+        if self.stability_repeats < 1:
+            raise ValueError("stability_repeats must be positive.")
 
     def _state_clone(self) -> dict[str, torch.Tensor]:
         return {
@@ -81,11 +96,28 @@ class TCSMMethod(BaseSparseMethod):
     def _prunable_items(self) -> list[tuple[str, nn.Parameter]]:
         return list(iter_prunable_named_parameters(self.model))
 
-    def _bounded_batches(self, max_batches: int) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+    def _bounded_batches(self, max_batches: int | None) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
         for batch_idx, (inputs, targets) in enumerate(self.dataloader):
-            if batch_idx >= max_batches:
+            if max_batches is not None and batch_idx >= max_batches:
                 break
             yield inputs.to(self.device), targets.to(self.device)
+
+    def _clone_like_scores(self, value: float = 0.0) -> dict[str, torch.Tensor]:
+        return {
+            name: torch.full_like(score, fill_value=value)
+            for name, score in self.base_score_dict.items()
+        }
+
+    def _clone_base_scores(self) -> dict[str, torch.Tensor]:
+        return {
+            name: score.detach().clone()
+            for name, score in self.base_score_dict.items()
+        }
+
+    def _calibration_batch_limit(self) -> int | None:
+        if self.calibration_mode == "full_data":
+            return None
+        return max(1, self.calibration_batches)
 
     def _average_loss(self, batches: list[tuple[torch.Tensor, torch.Tensor]]) -> torch.Tensor:
         total_loss: torch.Tensor | None = None
@@ -110,24 +142,33 @@ class TCSMMethod(BaseSparseMethod):
             for (name, _parameter), grad in zip(prunable_items, grads, strict=True)
         }
 
+    def _calibration_score_from_batches(
+        self,
+        batches: list[tuple[torch.Tensor, torch.Tensor]],
+    ) -> dict[str, torch.Tensor]:
+        grad_dict = self._grad_dict_for_batches(batches)
+        score_dict: dict[str, torch.Tensor] = {}
+        for name, parameter in self._prunable_items():
+            grad = grad_dict.get(name)
+            if grad is None:
+                score_dict[name] = torch.zeros_like(parameter)
+            else:
+                score_dict[name] = (parameter * grad).detach().abs().clone()
+        return score_dict
+
     def compute_calibration_score(self) -> dict[str, torch.Tensor]:
-        """Compute SNIP-style calibration scores over D_cal."""
+        """Compute calibration scores over D_cal according to the selected mode."""
+        if self.calibration_mode == "base_only":
+            return self._clone_base_scores()
+
         was_training = self.model.training
         saved_state = self._state_clone()
         self.model.zero_grad(set_to_none=True)
         self.model.train()
 
         try:
-            batches = list(self._bounded_batches(self.calibration_batches))
-            grad_dict = self._grad_dict_for_batches(batches)
-            score_dict: dict[str, torch.Tensor] = {}
-            for name, parameter in self._prunable_items():
-                grad = grad_dict.get(name)
-                if grad is None:
-                    score_dict[name] = torch.zeros_like(parameter)
-                else:
-                    score_dict[name] = (parameter * grad).detach().abs().clone()
-            return score_dict
+            batches = list(self._bounded_batches(self._calibration_batch_limit()))
+            return self._calibration_score_from_batches(batches)
         finally:
             self._restore_state(saved_state, was_training)
 
@@ -142,6 +183,9 @@ class TCSMMethod(BaseSparseMethod):
 
     def compute_sign_consistency(self) -> dict[str, torch.Tensor]:
         """Compute per-parameter gradient sign consistency across two views."""
+        if self.calibration_mode == "base_only" or self.sign_batches == 0:
+            return self._clone_like_scores(0.0)
+
         was_training = self.model.training
         saved_state = self._state_clone()
         self.model.zero_grad(set_to_none=True)
@@ -182,6 +226,11 @@ class TCSMMethod(BaseSparseMethod):
     ) -> dict[str, torch.Tensor]:
         """Fuse base, calibration, and sign consistency into stable scores."""
         normalized_base = self._global_normalize(self.base_score_dict)
+        if self.calibration_mode == "base_only":
+            return {
+                name: score.detach().clone()
+                for name, score in normalized_base.items()
+            }
         normalized_calibration = self._global_normalize(calibration_score_dict)
 
         stable_score: dict[str, torch.Tensor] = {}
@@ -230,17 +279,7 @@ class TCSMMethod(BaseSparseMethod):
         stable_mask_dict: Mapping[str, torch.Tensor],
     ) -> float:
         base_mask = global_topk_mask(self.base_score_dict, self.sparsity)
-        intersections = 0
-        unions = 0
-        for name, base in base_mask.items():
-            stable = stable_mask_dict[name]
-            base_bool = base.detach().to(dtype=torch.bool).flatten().cpu()
-            stable_bool = stable.detach().to(dtype=torch.bool).flatten().cpu()
-            intersections += int(torch.logical_and(base_bool, stable_bool).sum().item())
-            unions += int(torch.logical_or(base_bool, stable_bool).sum().item())
-        if unions == 0:
-            return 1.0
-        return intersections / unions
+        return mask_jaccard(base_mask, stable_mask_dict)
 
     def _mean_value(self, tensor_dict: Mapping[str, torch.Tensor]) -> float:
         total_sum = sum(float(tensor.detach().sum().cpu().item()) for tensor in tensor_dict.values())
@@ -248,6 +287,65 @@ class TCSMMethod(BaseSparseMethod):
         if total_count == 0:
             return 0.0
         return total_sum / total_count
+
+    def stability_metrics(self) -> dict[str, float]:
+        """Estimate score/mask stability across lightweight calibration windows."""
+        if self.stability_repeats <= 1 or self.calibration_mode == "base_only":
+            return {
+                "stability_repeats": float(self.stability_repeats),
+                "score_rank_correlation": 1.0,
+                "mask_jaccard": 1.0,
+            }
+
+        batches_per_repeat = max(1, self.calibration_batches)
+        all_batches = list(self._bounded_batches(batches_per_repeat * self.stability_repeats))
+        if len(all_batches) < batches_per_repeat:
+            return {
+                "stability_repeats": 1.0,
+                "score_rank_correlation": 1.0,
+                "mask_jaccard": 1.0,
+            }
+
+        was_training = self.model.training
+        saved_state = self._state_clone()
+        self.model.zero_grad(set_to_none=True)
+        self.model.train()
+        try:
+            scores: list[dict[str, torch.Tensor]] = []
+            masks: list[dict[str, torch.Tensor]] = []
+            for repeat_idx in range(self.stability_repeats):
+                start = repeat_idx * batches_per_repeat
+                stop = start + batches_per_repeat
+                window = all_batches[start:stop]
+                if not window:
+                    continue
+                score = self._calibration_score_from_batches(window)
+                scores.append(score)
+                masks.append(global_topk_mask(score, self.sparsity))
+                self.model.zero_grad(set_to_none=True)
+        finally:
+            self._restore_state(saved_state, was_training)
+
+        if len(scores) < 2:
+            return {
+                "stability_repeats": float(len(scores)),
+                "score_rank_correlation": 1.0,
+                "mask_jaccard": 1.0,
+            }
+
+        rank_values = [
+            score_rank_correlation(scores[0], score)
+            for score in scores[1:]
+        ]
+        jaccard_values = [
+            mask_jaccard(masks[0], mask)
+            for mask in masks[1:]
+        ]
+        return {
+            "stability_repeats": float(len(scores)),
+            "score_rank_correlation": sum(rank_values) / len(rank_values),
+            "mask_jaccard": sum(jaccard_values) / len(jaccard_values),
+        }
 
     def run(self) -> TCSMOutput:
         """Run the minimal TCSM data flow."""
@@ -257,10 +355,12 @@ class TCSMMethod(BaseSparseMethod):
         stable_mask = self.build_stable_mask(stable_score)
         stable_omega = self.build_stable_omega(stable_score)
         metrics = {
+            "calibration_mode": self.calibration_mode,
             "sparsity": compute_sparsity(stable_mask),
             "mean_stable_score": self._mean_value(stable_score),
             "mean_stable_omega": self._mean_value(stable_omega),
             "base_stable_jaccard": self._base_stable_jaccard(stable_mask),
+            **self.stability_metrics(),
         }
         return TCSMOutput(
             base_score_dict={

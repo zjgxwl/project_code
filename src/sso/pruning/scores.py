@@ -7,6 +7,10 @@ from typing import Any
 
 import torch
 from torch import nn
+try:
+    from torch.func import functional_call
+except ImportError:  # pragma: no cover - compatibility for older torch builds
+    from torch.nn.utils.stateless import functional_call
 
 from .params import iter_prunable_named_parameters
 
@@ -208,6 +212,101 @@ def grasp_score(
         model.train(was_training)
 
 
-def ep_score(*_args: Any, **_kwargs: Any) -> dict[str, torch.Tensor]:
-    """Placeholder for future EP scores."""
-    raise NotImplementedError("TODO: implement EP scoring in a future chapter method.")
+def ep_score(
+    model: nn.Module,
+    dataloader: Iterable | None,
+    criterion: nn.Module | None,
+    device: torch.device | str | None,
+    max_batches: int = 1,
+    score_steps: int = 1,
+    score_lr: float = 0.1,
+) -> dict[str, torch.Tensor]:
+    """Compute a lightweight Edge-Popup-style connection score.
+
+    The model weights are kept fixed. Trainable score logits are attached to
+    prunable tensors through ``sigmoid(logit)`` during functional forward calls,
+    then updated for a few calibration steps. The returned score is the learned
+    gate value, which can be consumed by the same global Top-K mask builder as
+    the other PaI scorers.
+    """
+    if dataloader is None:
+        raise ValueError("ep_score requires a dataloader.")
+    if criterion is None:
+        raise ValueError("ep_score requires a criterion.")
+    if device is None:
+        raise ValueError("ep_score requires a device.")
+    if max_batches <= 0:
+        raise ValueError("max_batches must be positive.")
+    if score_steps <= 0:
+        raise ValueError("score_steps must be positive.")
+
+    device = torch.device(device)
+    was_training = model.training
+    original_state = {
+        name: tensor.detach().clone()
+        for name, tensor in model.state_dict().items()
+    }
+    model.zero_grad(set_to_none=True)
+    model.train()
+
+    try:
+        named_parameters = {
+            name: parameter.detach()
+            for name, parameter in model.named_parameters()
+        }
+        buffers = {
+            name: buffer.detach()
+            for name, buffer in model.named_buffers()
+        }
+        prunable_items = list(iter_prunable_named_parameters(model))
+        score_logits = {
+            name: torch.zeros_like(parameter, device=parameter.device, requires_grad=True)
+            for name, parameter in prunable_items
+        }
+
+        cached_batches: list[tuple[torch.Tensor, torch.Tensor]] = []
+        for batch_idx, (inputs, targets) in enumerate(dataloader):
+            if batch_idx >= max_batches:
+                break
+            cached_batches.append((inputs.to(device), targets.to(device)))
+        if not cached_batches:
+            raise ValueError("ep_score received no batches from dataloader.")
+
+        for _step in range(score_steps):
+            for score in score_logits.values():
+                if score.grad is not None:
+                    score.grad.zero_()
+
+            total_loss: torch.Tensor | None = None
+            for inputs, targets in cached_batches:
+                effective_parameters: dict[str, torch.Tensor] = dict(named_parameters)
+                for name, parameter in prunable_items:
+                    gate = torch.sigmoid(score_logits[name])
+                    effective_parameters[name] = parameter.detach() * gate
+
+                logits = functional_call(
+                    model,
+                    {**effective_parameters, **buffers},
+                    (inputs,),
+                )
+                loss = criterion(logits, targets)
+                total_loss = loss if total_loss is None else total_loss + loss
+
+            if total_loss is None:
+                raise ValueError("ep_score received no usable batches.")
+            average_loss = total_loss / len(cached_batches)
+            average_loss.backward()
+
+            with torch.no_grad():
+                for score in score_logits.values():
+                    if score.grad is not None:
+                        score -= float(score_lr) * score.grad
+
+        return {
+            name: torch.sigmoid(score.detach()).clone()
+            for name, score in score_logits.items()
+        }
+    finally:
+        model.load_state_dict(original_state, strict=True)
+        model.zero_grad(set_to_none=True)
+        _restore_training_mode(model, was_training)

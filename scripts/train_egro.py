@@ -1,4 +1,4 @@
-"""Run a minimal EGRO Stage-2 training smoke test."""
+"""Run a minimal EGRO Stage-2 training validation."""
 
 from __future__ import annotations
 
@@ -236,7 +236,6 @@ def main() -> None:
                 "scorer": scorer,
                 "device": str(device),
                 "seed": int(config.get("seed", 42)),
-                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
                 "fast_dev_run": bool(config.get("fast_dev_run", False)),
                 "timestamp": get_timestamp(),
                 **dataset_record_fields(config),

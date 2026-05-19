@@ -75,6 +75,12 @@ def test_tspr_regularization_and_export_behavior() -> None:
 
     assert method.lambda_at(0, 10) == pytest.approx(1e-4)
     assert method.lambda_at(10, 10) == pytest.approx(0.0, abs=1e-12)
+    metrics = method.method_metrics(epoch=0, total_epochs=10)
+    assert metrics["lambda"] == pytest.approx(1e-4)
+    assert metrics["pruned_displacement_l2"] >= 0.0
+    assert metrics["kept_displacement_l2"] >= 0.0
+    assert metrics["omega_mean"] > 0.0
+    assert metrics["omega_max"] >= metrics["omega_mean"]
 
 
 def test_tspr_regularization_loss_handles_no_pruned_positions() -> None:

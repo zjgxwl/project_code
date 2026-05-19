@@ -8,6 +8,7 @@ from sso.datasets import build_dataloaders
 from sso.models import build_model
 from sso.pruning import (
     build_score_dict,
+    ep_score,
     grasp_score,
     iter_prunable_named_parameters,
     magnitude_score,
@@ -21,11 +22,14 @@ def _config() -> dict:
         "seed": 42,
         "dataset": {
             "name": "cifar10",
-            "use_fake_data": True,
+            "data_dir": "outputs/thesis_real_data",
+            "download": False,
             "num_classes": 10,
             "image_size": 32,
             "batch_size": 4,
             "num_workers": 0,
+            "train_subset_size": 8,
+            "val_subset_size": 4,
         },
         "model": {"name": "resnet18", "num_classes": 10},
         "pruning": {"scorer": "magnitude", "score_batches": 1},
@@ -134,10 +138,34 @@ def test_grasp_score_keys_shapes_nonnegative_and_restores_model() -> None:
     assert model.training == was_training
 
 
+def test_ep_score_keys_shapes_nonnegative_and_restores_model() -> None:
+    config = _config()
+    model = build_model(config)
+    model.eval()
+    was_training = model.training
+    original_state = _state_clone(model)
+    train_loader, _ = build_dataloaders(config)
+
+    score_dict = ep_score(
+        model,
+        dataloader=train_loader,
+        criterion=nn.CrossEntropyLoss(),
+        device=torch.device("cpu"),
+        max_batches=1,
+        score_steps=1,
+        score_lr=0.1,
+    )
+
+    _assert_score_shapes_and_nonnegative(model, score_dict)
+    _assert_state_unchanged(model, original_state)
+    _assert_no_gradients(model)
+    assert model.training == was_training
+
+
 def test_build_score_dict_selects_supported_scorers_without_mutating_config() -> None:
     base_config = _config()
 
-    for scorer in ("magnitude", "snip", "synflow", "grasp"):
+    for scorer in ("magnitude", "snip", "synflow", "grasp", "ep"):
         config = copy.deepcopy(base_config)
         original_config = copy.deepcopy(config)
         config["pruning"]["scorer"] = scorer
@@ -155,12 +183,9 @@ def test_build_score_dict_selects_supported_scorers_without_mutating_config() ->
         assert config == {**original_config, "pruning": {**original_config["pruning"], "scorer": scorer}}
 
 
-def test_build_score_dict_rejects_unimplemented_and_unknown_scorers() -> None:
+def test_build_score_dict_rejects_unknown_scorers() -> None:
     config = _config()
     model = build_model(config)
-
-    with pytest.raises(NotImplementedError):
-        build_score_dict(model, config, scorer="ep")
 
     with pytest.raises(ValueError):
         build_score_dict(model, config, scorer="unknown")

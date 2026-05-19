@@ -1,4 +1,4 @@
-"""Small CIFAR VGG-style models for structured export smoke tests."""
+"""Small CIFAR VGG-style models for structured export validation."""
 
 from __future__ import annotations
 
@@ -54,5 +54,27 @@ def cifar_vgg11_bn(num_classes: int = 10) -> CifarVGG:
     """Build the lightweight project-local CIFAR VGG-11-BN variant."""
     return CifarVGG(
         channels=[32, 32, 64, 64, 128, 128, 256, 256],
+        num_classes=num_classes,
+    )
+
+
+def cifar_vgg16_bn(num_classes: int = 10) -> CifarVGG:
+    """Build a CIFAR VGG-16-BN style serial Conv-BN-ReLU network."""
+    return CifarVGG(
+        channels=[
+            64,
+            64,
+            128,
+            128,
+            256,
+            256,
+            256,
+            512,
+            512,
+            512,
+            512,
+            512,
+            512,
+        ],
         num_classes=num_classes,
     )

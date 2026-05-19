@@ -74,5 +74,16 @@ def build_score_dict(
             max_batches=max_batches,
         )
     if scorer_name == "ep":
-        return ep_score(model)
+        max_batches = int(pruning_config.get("score_batches", 1))
+        score_steps = int(pruning_config.get("ep_score_steps", 1))
+        score_lr = float(pruning_config.get("ep_score_lr", 0.1))
+        return ep_score(
+            model,
+            dataloader=dataloader,
+            criterion=criterion,
+            device=device,
+            max_batches=max_batches,
+            score_steps=score_steps,
+            score_lr=score_lr,
+        )
     raise ValueError(f"Unsupported pruning scorer: {scorer_name}")

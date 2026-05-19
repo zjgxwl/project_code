@@ -1,4 +1,4 @@
-"""Dataset builders used by debug and smoke-test runs."""
+"""Dataset builders for real dataset training and validation runs."""
 
 from __future__ import annotations
 
@@ -242,11 +242,7 @@ def _build_tiny_datasets(
 
 
 def build_dataloaders(config: dict[str, Any]) -> tuple[DataLoader, DataLoader]:
-    """Build train and validation dataloaders.
-
-    FakeData remains the default so tests and normal smoke runs do not download
-    real datasets unless explicitly requested.
-    """
+    """Build train and validation dataloaders from real datasets."""
     dataset_config = config.get("dataset", {})
     dataset_name = normalize_dataset_name(dataset_config.get("name", "cifar10"))
     if dataset_name not in {"cifar10", "cifar100", "tiny_imagenet"}:
@@ -256,32 +252,15 @@ def build_dataloaders(config: dict[str, Any]) -> tuple[DataLoader, DataLoader]:
     image_size = int(dataset_config.get("image_size", _default_image_size(dataset_name)))
     batch_size = int(dataset_config.get("batch_size", 8))
     num_workers = int(dataset_config.get("num_workers", config.get("num_workers", 0)))
-    use_fake_data = bool(dataset_config.get("use_fake_data", config.get("use_fake_data", True)))
     transform = _build_transform(dataset_name, image_size)
 
-    if use_fake_data:
-        train_size = _get_subset_size(dataset_config, "train_subset_size")
-        val_size = _get_subset_size(dataset_config, "val_subset_size")
-        train_dataset: Dataset = datasets.FakeData(
-            size=train_size or max(batch_size * 4, 32),
-            image_size=(3, image_size, image_size),
-            num_classes=num_classes,
-            transform=transform,
-        )
-        val_dataset: Dataset = datasets.FakeData(
-            size=val_size or max(batch_size * 2, 16),
-            image_size=(3, image_size, image_size),
-            num_classes=num_classes,
-            transform=transform,
-        )
-    elif dataset_name in {"cifar10", "cifar100"}:
+    if dataset_name in {"cifar10", "cifar100"}:
         train_dataset, val_dataset = _build_cifar_datasets(dataset_name, dataset_config, transform)
     else:
         train_dataset, val_dataset = _build_tiny_datasets(dataset_config, transform)
 
-    if not use_fake_data:
-        train_dataset = _apply_subset(train_dataset, _get_subset_size(dataset_config, "train_subset_size"))
-        val_dataset = _apply_subset(val_dataset, _get_subset_size(dataset_config, "val_subset_size"))
+    train_dataset = _apply_subset(train_dataset, _get_subset_size(dataset_config, "train_subset_size"))
+    val_dataset = _apply_subset(val_dataset, _get_subset_size(dataset_config, "val_subset_size"))
 
     train_loader = DataLoader(
         train_dataset,

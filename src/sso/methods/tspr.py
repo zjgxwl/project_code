@@ -121,6 +121,59 @@ class TSPRMethod(BaseSparseMethod):
 
         return reg_loss * self.lambda_at(epoch=epoch, total_epochs=total_epochs)
 
+    def displacement_metrics(self) -> dict[str, float]:
+        """Measure kept/pruned parameter displacement from initialization."""
+        pruned_sq = 0.0
+        kept_sq = 0.0
+        pruned_count = 0
+        kept_count = 0
+
+        for name, parameter in self._iter_masked_parameters():
+            mask = self.fixed_mask_dict[name].to(device=parameter.device, dtype=parameter.dtype)
+            pruned_mask = (mask == 0).to(dtype=parameter.dtype)
+            kept_mask = (mask != 0).to(dtype=parameter.dtype)
+            initial = self.initial_state[name].to(device=parameter.device, dtype=parameter.dtype)
+            diff_sq = (parameter.detach() - initial).square()
+
+            pruned_sq += float(torch.sum(diff_sq * pruned_mask).cpu().item())
+            kept_sq += float(torch.sum(diff_sq * kept_mask).cpu().item())
+            pruned_count += int(torch.count_nonzero(pruned_mask).item())
+            kept_count += int(torch.count_nonzero(kept_mask).item())
+
+        return {
+            "pruned_displacement_l2": pruned_sq ** 0.5,
+            "kept_displacement_l2": kept_sq ** 0.5,
+            "pruned_displacement_mean": 0.0 if pruned_count == 0 else (pruned_sq / pruned_count) ** 0.5,
+            "kept_displacement_mean": 0.0 if kept_count == 0 else (kept_sq / kept_count) ** 0.5,
+            "pruned_parameter_count": float(pruned_count),
+            "kept_parameter_count": float(kept_count),
+        }
+
+    def omega_metrics(self) -> dict[str, float]:
+        """Summarize TSPR regularization weights."""
+        total_sum = 0.0
+        total_count = 0
+        max_value = 0.0
+        for omega in self.omega_dict.values():
+            detached = omega.detach().float().cpu()
+            if detached.numel() == 0:
+                continue
+            total_sum += float(detached.sum().item())
+            total_count += int(detached.numel())
+            max_value = max(max_value, float(detached.max().item()))
+        return {
+            "omega_mean": 0.0 if total_count == 0 else total_sum / total_count,
+            "omega_max": max_value,
+        }
+
+    def method_metrics(self, epoch: int = 0, total_epochs: int = 1) -> dict[str, float]:
+        """Return lightweight TSPR diagnostics for experiment records."""
+        return {
+            "lambda": self.lambda_at(epoch=epoch, total_epochs=total_epochs),
+            **self.displacement_metrics(),
+            **self.omega_metrics(),
+        }
+
     def export_state_dict(self) -> dict[str, torch.Tensor]:
         """Return masked model weights without mutating the training model."""
         return masked_state_dict(self.model, self.fixed_mask_dict)
@@ -139,6 +192,7 @@ class TSPRMethod(BaseSparseMethod):
                 name: omega.detach().clone()
                 for name, omega in self.omega_dict.items()
             },
+            "metrics": self.method_metrics(),
         }
 
     def state_dict(self) -> dict[str, object]:

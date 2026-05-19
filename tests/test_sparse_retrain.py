@@ -72,3 +72,4 @@ def test_standard_sparse_retraining_keeps_weights_and_gradients_masked() -> None
     for name, mask in mask_dict.items():
         expected = model.state_dict()[name] * mask.to(dtype=model.state_dict()[name].dtype)
         assert torch.equal(exported[name], expected)
+

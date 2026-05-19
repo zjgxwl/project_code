@@ -15,11 +15,14 @@ def _config() -> dict:
         "seed": 42,
         "dataset": {
             "name": "cifar10",
-            "use_fake_data": True,
+            "data_dir": "outputs/thesis_real_data",
+            "download": False,
             "num_classes": 10,
             "image_size": 32,
             "batch_size": 4,
             "num_workers": 0,
+            "train_subset_size": 8,
+            "val_subset_size": 4,
         },
         "model": {"name": "resnet18", "num_classes": 10},
         "pruning": {"scorer": "magnitude", "sparsity": 0.9, "score_batches": 1},
@@ -133,6 +136,11 @@ def test_egro_stage1_outputs_group_selection_metrics_without_mutation() -> None:
     assert 0.0 <= output.metrics["param_reduction"] <= 1.0
     assert output.metrics["total_groups"] == len(output.groups)
     assert output.metrics["kept_groups"] + output.metrics["dropped_groups"] == len(output.groups)
+    assert set(output.layer_keep_ratios) == set(layer_counts)
+    assert output.metrics["mean_layer_keep_ratio"] > 0.0
+    assert output.metrics["min_layer_keep_ratio"] > 0.0
+    for ratio in output.layer_keep_ratios.values():
+        assert 0.0 < ratio <= 1.0
 
     _assert_state_unchanged(model, original_state)
     for name, score in original_stable_score.items():

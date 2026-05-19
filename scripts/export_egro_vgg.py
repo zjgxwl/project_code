@@ -1,4 +1,4 @@
-"""Run EGRO Stage-3a VGG-style slim export smoke test."""
+"""Run EGRO Stage-3a VGG-style slim export validation."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from sso.datasets import build_dataloaders
-from sso.export import export_vgg_slim_model
+from sso.export import export_vgg_slim_artifact
 from sso.methods import EGROMethod, EGROTrainingMethod, TCSMMethod
 from sso.models import build_model
 from sso.pruning import build_score_dict
@@ -30,10 +30,6 @@ from sso.utils import add_data_args, apply_data_overrides, build_run_name, datas
 def load_config(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         return yaml.safe_load(handle)
-
-
-def count_parameters(model: nn.Module) -> int:
-    return sum(parameter.numel() for parameter in model.parameters())
 
 
 def build_optimizer(model: nn.Module, config: dict[str, Any]) -> torch.optim.Optimizer:
@@ -170,7 +166,6 @@ def main() -> None:
     train_loader, val_loader = build_dataloaders(config)
     criterion = nn.CrossEntropyLoss()
     model = build_model(config).to(device)
-    original_params = count_parameters(model)
     base_score_dict = build_score_dict(
         model,
         config,
@@ -218,14 +213,15 @@ def main() -> None:
             total_epochs=total_epochs,
         )
 
-    slim_model = export_vgg_slim_model(
+    export_artifact = export_vgg_slim_artifact(
         model=model,
         group_mask=egro_output.group_mask,
         groups=egro_output.groups,
         num_classes=int(config.get("model", {}).get("num_classes", config.get("dataset", {}).get("num_classes", 10))),
         input_shape=input_shape,
     )
-    slim_params = count_parameters(slim_model)
+    slim_model = export_artifact.model
+    export_metadata = export_artifact.metadata
     slim_metrics = evaluate(
         slim_model,
         val_loader,
@@ -234,19 +230,20 @@ def main() -> None:
         max_batches=max_val_batches,
     )
     metrics = egro_output.metrics
-    param_reduction_actual = 0.0 if original_params == 0 else 1.0 - (slim_params / original_params)
 
     print(f"device: {device}")
     print(f"model: {model_name}")
     print(f"scorer: {scorer}")
     print(f"target_flops_reduction: {metrics['target_flops_reduction']:.6f}")
     print(f"actual_flops_reduction_stage1: {metrics['flops_reduction']:.6f}")
-    print(f"original_params: {original_params}")
-    print(f"slim_params: {slim_params}")
-    print(f"param_reduction_actual: {param_reduction_actual:.6f}")
-    print(f"original_conv_flops_est: {metrics['total_conv_flops']:.2f}")
-    print(f"kept_conv_flops_est: {metrics['kept_conv_flops']:.2f}")
-    print(f"flops_reduction_est: {metrics['flops_reduction']:.6f}")
+    print(f"original_params: {int(export_metadata['original_params'])}")
+    print(f"slim_params: {int(export_metadata['slim_params'])}")
+    print(f"param_reduction_actual: {export_metadata['param_reduction']:.6f}")
+    print(f"original_conv_flops: {export_metadata['original_conv_flops']:.2f}")
+    print(f"slim_conv_flops: {export_metadata['slim_conv_flops']:.2f}")
+    print(f"flops_reduction_actual: {export_metadata['flops_reduction']:.6f}")
+    print(f"mean_layer_keep_ratio: {metrics['mean_layer_keep_ratio']:.6f}")
+    print(f"min_layer_keep_ratio: {metrics['min_layer_keep_ratio']:.6f}")
     print(f"slim_val_loss: {slim_metrics['loss']:.4f}")
     print(f"slim_val_acc: {slim_metrics['accuracy']:.4f}")
     if args.save_metrics:
@@ -265,26 +262,29 @@ def main() -> None:
                 "scorer": scorer,
                 "device": str(device),
                 "seed": int(config.get("seed", 42)),
-                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
                 "fast_dev_run": bool(config.get("fast_dev_run", False)),
                 "timestamp": get_timestamp(),
                 **dataset_record_fields(config),
                 "sparsity": sparsity,
                 "target_flops_reduction": metrics["target_flops_reduction"],
-                "actual_flops_reduction": metrics["flops_reduction"],
+                "actual_flops_reduction_stage1": metrics["flops_reduction"],
                 "total_groups": metrics["total_groups"],
                 "kept_groups": metrics["kept_groups"],
                 "dropped_groups": metrics["dropped_groups"],
-                "param_reduction": metrics["param_reduction"],
+                "group_param_reduction": metrics["param_reduction"],
                 "total_conv_flops": metrics["total_conv_flops"],
                 "kept_conv_flops": metrics["kept_conv_flops"],
+                "mean_layer_keep_ratio": metrics["mean_layer_keep_ratio"],
+                "min_layer_keep_ratio": metrics["min_layer_keep_ratio"],
+                "layer_keep_ratios": egro_output.layer_keep_ratios,
                 "lambda0": lambda0,
-                "original_params": original_params,
-                "slim_params": slim_params,
-                "param_reduction_actual": param_reduction_actual,
-                "original_conv_flops_est": metrics["total_conv_flops"],
-                "kept_conv_flops_est": metrics["kept_conv_flops"],
-                "flops_reduction_est": metrics["flops_reduction"],
+                "original_params": export_metadata["original_params"],
+                "slim_params": export_metadata["slim_params"],
+                "param_reduction_actual": export_metadata["param_reduction"],
+                "original_conv_flops_actual": export_metadata["original_conv_flops"],
+                "slim_conv_flops_actual": export_metadata["slim_conv_flops"],
+                "flops_reduction_actual": export_metadata["flops_reduction"],
+                "export_metadata": export_metadata,
                 "slim_val_loss": slim_metrics["loss"],
                 "slim_val_acc": slim_metrics["accuracy"],
             },

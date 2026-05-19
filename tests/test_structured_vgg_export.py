@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from sso.datasets import build_dataloaders
-from sso.export import export_vgg_slim_model
+from sso.export import StructuredExportArtifact, export_slim_artifact, export_vgg_slim_artifact, export_vgg_slim_model
 from sso.methods import EGROMethod, TCSMMethod
 from sso.models import CifarVGG, build_model
 from sso.pruning import build_score_dict
@@ -16,11 +16,14 @@ def _config() -> dict:
         "seed": 42,
         "dataset": {
             "name": "cifar10",
-            "use_fake_data": True,
+            "data_dir": "outputs/thesis_real_data",
+            "download": False,
             "num_classes": 10,
             "image_size": 32,
             "batch_size": 4,
             "num_workers": 0,
+            "train_subset_size": 8,
+            "val_subset_size": 4,
         },
         "model": {"name": "vgg11_bn", "num_classes": 10},
         "pruning": {"scorer": "magnitude", "sparsity": 0.9, "score_batches": 1},
@@ -145,6 +148,52 @@ def test_export_vgg_slim_model_forwards_and_preserves_source_model() -> None:
     assert model.training == original_training
     _assert_state_unchanged(model, original_state)
     assert egro_output.group_mask == original_group_mask
+
+
+def test_export_vgg_slim_artifact_reports_real_structure_metadata() -> None:
+    torch.manual_seed(42)
+    config = _config()
+    device = torch.device("cpu")
+    model = build_model(config).to(device)
+    original_state = _state_clone(model)
+    egro_output = _build_egro_output(model, config, device)
+
+    artifact = export_vgg_slim_artifact(
+        model=model,
+        group_mask=egro_output.group_mask,
+        groups=egro_output.groups,
+        num_classes=10,
+        input_shape=config["egro"]["input_shape"],
+    )
+
+    assert isinstance(artifact, StructuredExportArtifact)
+    assert isinstance(artifact.model, CifarVGG)
+    metadata = artifact.metadata
+    assert metadata["export_type"] == "vgg_slim"
+    assert metadata["original_params"] > metadata["slim_params"]
+    assert 0.0 < metadata["param_reduction"] < 1.0
+    assert metadata["original_conv_flops"] > metadata["slim_conv_flops"]
+    assert 0.0 < metadata["flops_reduction"] < 1.0
+    assert metadata["layer_keep"]
+    for values in metadata["layer_keep"].values():
+        assert 0.0 < values["keep_ratio"] <= 1.0
+        assert values["kept_channels"] <= values["total_channels"]
+    _assert_state_unchanged(model, original_state)
+
+
+def test_export_slim_artifact_rejects_resnet_until_shortcut_rewrite_exists() -> None:
+    config = _config()
+    config["model"] = {"name": "resnet18", "num_classes": 10}
+    model = build_model(config)
+
+    with pytest.raises(NotImplementedError, match="ResNet shortcut"):
+        export_slim_artifact(
+            model=model,
+            group_mask={},
+            groups=[],
+            num_classes=10,
+            input_shape=(1, 3, 32, 32),
+        )
 
 
 def test_export_vgg_slim_model_rejects_invalid_vgg_structure() -> None:

@@ -36,6 +36,7 @@ class EGROOutput:
     group_omega: dict[str, float]
     metrics: dict[str, float]
     groups: list[StructureGroup]
+    layer_keep_ratios: dict[str, float]
 
 
 class EGROMethod(BaseSparseMethod):
@@ -236,7 +237,28 @@ class EGROMethod(BaseSparseMethod):
                     raise ValueError(f"group omega {group.group_id} must be positive.")
         return omega
 
-    def _build_metrics(self, groups: list[StructureGroup], group_mask: Mapping[str, int]) -> dict[str, float]:
+    def build_layer_keep_ratios(
+        self,
+        groups: list[StructureGroup],
+        group_mask: Mapping[str, int],
+    ) -> dict[str, float]:
+        """Return per-layer keep ratios for EGRO group masks."""
+        layer_counts: dict[str, int] = defaultdict(int)
+        kept_counts: dict[str, int] = defaultdict(int)
+        for group in groups:
+            layer_counts[group.layer_name] += 1
+            kept_counts[group.layer_name] += int(group_mask[group.group_id])
+        return {
+            layer_name: 0.0 if count == 0 else kept_counts[layer_name] / count
+            for layer_name, count in layer_counts.items()
+        }
+
+    def _build_metrics(
+        self,
+        groups: list[StructureGroup],
+        group_mask: Mapping[str, int],
+        layer_keep_ratios: Mapping[str, float],
+    ) -> dict[str, float]:
         total_groups = len(groups)
         kept_groups = sum(int(group_mask[group.group_id]) for group in groups)
         dropped_groups = total_groups - kept_groups
@@ -247,6 +269,7 @@ class EGROMethod(BaseSparseMethod):
 
         param_reduction = 0.0 if total_params == 0 else 1.0 - (kept_params / total_params)
         actual_flops_reduction = 0.0 if total_flops == 0.0 else 1.0 - (kept_flops / total_flops)
+        keep_values = list(layer_keep_ratios.values())
 
         metrics = {
             "total_groups": float(total_groups),
@@ -259,6 +282,8 @@ class EGROMethod(BaseSparseMethod):
             "kept_conv_flops": kept_flops,
             "flops_reduction": actual_flops_reduction,
             "target_flops_reduction": self.flops_reduction,
+            "mean_layer_keep_ratio": 0.0 if not keep_values else sum(keep_values) / len(keep_values),
+            "min_layer_keep_ratio": 0.0 if not keep_values else min(keep_values),
         }
         for name, value in metrics.items():
             self._validate_finite(float(value), f"metric {name}")
@@ -270,13 +295,15 @@ class EGROMethod(BaseSparseMethod):
         group_scores = self.build_group_scores(groups)
         group_mask = self.build_group_mask(groups, group_scores)
         group_omega = self.build_group_omega(groups, group_scores)
-        metrics = self._build_metrics(groups, group_mask)
+        layer_keep_ratios = self.build_layer_keep_ratios(groups, group_mask)
+        metrics = self._build_metrics(groups, group_mask, layer_keep_ratios)
         return EGROOutput(
             group_scores=group_scores,
             group_mask=group_mask,
             group_omega=group_omega,
             metrics=metrics,
             groups=groups,
+            layer_keep_ratios=layer_keep_ratios,
         )
 
 

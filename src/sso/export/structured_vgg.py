@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 import torch
 from torch import nn
 
+from sso.metrics import count_parameters, estimate_conv2d_flops
 from sso.methods import StructureGroup
 from sso.models import CifarVGG
+
+
+@dataclass
+class StructuredExportArtifact:
+    """Structured export result with model and EGRO metadata."""
+
+    model: nn.Module
+    metadata: dict[str, Any]
 
 
 def _model_device(model: nn.Module) -> torch.device:
@@ -102,6 +113,22 @@ def _copy_batch_norm(slim_bn: nn.BatchNorm2d, source_bn: nn.BatchNorm2d, keep: t
     slim_bn.num_batches_tracked.data.copy_(source_bn.num_batches_tracked.detach())
 
 
+def _layer_keep_metadata(
+    triplets: Sequence[tuple[str, nn.Conv2d, nn.BatchNorm2d, nn.ReLU]],
+    keep_indices: Mapping[str, torch.Tensor],
+) -> dict[str, dict[str, float]]:
+    metadata: dict[str, dict[str, float]] = {}
+    for layer_name, conv, _bn, _relu in triplets:
+        kept = int(keep_indices[layer_name].numel())
+        total = int(conv.out_channels)
+        metadata[layer_name] = {
+            "kept_channels": float(kept),
+            "total_channels": float(total),
+            "keep_ratio": 0.0 if total == 0 else kept / total,
+        }
+    return metadata
+
+
 def export_vgg_slim_model(
     model: nn.Module,
     group_mask: Mapping[str, int | bool],
@@ -112,7 +139,7 @@ def export_vgg_slim_model(
     """Export a real slim CifarVGG from EGRO Conv2d output-channel groups.
 
     ``input_shape`` is accepted to keep the export interface explicit for
-    Stage-3a smoke tests; the project-local VGG uses adaptive pooling, so the
+    Stage-3a validation; the project-local VGG uses adaptive pooling, so the
     final classifier depends only on the last kept channel count.
     """
     if not isinstance(model, CifarVGG):
@@ -158,3 +185,65 @@ def export_vgg_slim_model(
 
     slim_model.train(was_training)
     return slim_model
+
+
+def export_vgg_slim_artifact(
+    model: nn.Module,
+    group_mask: Mapping[str, int | bool],
+    groups: Sequence[StructureGroup],
+    num_classes: int,
+    input_shape: tuple[int, ...] | list[int],
+) -> StructuredExportArtifact:
+    """Export a slim VGG model and metadata for EGRO table generation."""
+    if not isinstance(model, CifarVGG):
+        raise ValueError("export_vgg_slim_artifact only supports project-local CifarVGG models.")
+    device = _model_device(model)
+    triplets = _validate_vgg_triplets(model)
+    keep_indices = _keep_indices_by_layer(triplets, list(groups), dict(group_mask), device)
+    original_params = count_parameters(model)
+    original_flops = estimate_conv2d_flops(model, input_shape=input_shape, device=device)
+
+    slim_model = export_vgg_slim_model(
+        model=model,
+        group_mask=group_mask,
+        groups=groups,
+        num_classes=num_classes,
+        input_shape=input_shape,
+    )
+    slim_params = count_parameters(slim_model)
+    slim_flops = estimate_conv2d_flops(slim_model, input_shape=input_shape, device=device)
+    metadata: dict[str, Any] = {
+        "export_type": "vgg_slim",
+        "model_class": "CifarVGG",
+        "input_shape": [int(dim) for dim in input_shape],
+        "original_params": float(original_params),
+        "slim_params": float(slim_params),
+        "param_reduction": 0.0 if original_params == 0 else 1.0 - (slim_params / original_params),
+        "original_conv_flops": float(original_flops),
+        "slim_conv_flops": float(slim_flops),
+        "flops_reduction": 0.0 if original_flops == 0.0 else 1.0 - (slim_flops / original_flops),
+        "layer_keep": _layer_keep_metadata(triplets, keep_indices),
+    }
+    return StructuredExportArtifact(model=slim_model, metadata=metadata)
+
+
+def export_slim_artifact(
+    model: nn.Module,
+    group_mask: Mapping[str, int | bool],
+    groups: Sequence[StructureGroup],
+    num_classes: int,
+    input_shape: tuple[int, ...] | list[int],
+) -> StructuredExportArtifact:
+    """Dispatch EGRO real-structure export for supported model families."""
+    if isinstance(model, CifarVGG):
+        return export_vgg_slim_artifact(
+            model=model,
+            group_mask=group_mask,
+            groups=groups,
+            num_classes=num_classes,
+            input_shape=input_shape,
+        )
+    raise NotImplementedError(
+        "EGRO real slim export currently supports project-local VGG only. "
+        "ResNet shortcut-synchronized rewrite is intentionally guarded until implemented."
+    )

@@ -1,0 +1,105 @@
+chapter: chapter3
+
+capabilities:
+  models:
+    resnet18: supported
+    vgg11_bn: supported
+    vgg16_bn: supported
+    resnet34: supported
+    mobilenetv2: supported
+    vit_tiny: future
+  methods:
+    standard: supported
+    tspr: supported
+    tost: external_only
+    repair: external_only
+    rigl: external_only
+
+profiles:
+  quick:
+    device: auto
+    seeds: [42]
+    models: [resnet18]
+    scorers: [magnitude]
+    methods: [standard, tspr]
+    sparsities: [0.9]
+    flops_reductions: [null]
+    dataset:
+      name: cifar10
+      data_dir: outputs/thesis_real_data
+      download: false
+      num_classes: 10
+      image_size: 32
+      batch_size: 8
+      num_workers: 0
+      train_subset_size: 32
+      val_subset_size: 16
+    optimizer:
+      name: sgd
+      lr: 0.01
+      momentum: 0.9
+      weight_decay: 0.0005
+    scheduler:
+      name: cosine
+    training:
+      epochs: 1
+      max_train_batches: 2
+      max_val_batches: 2
+      eval_interval: 1
+      checkpoint_interval: 0
+
+  mini-real:
+    device: auto
+    seeds: [42]
+    models: [resnet18]
+    scorers: [magnitude]
+    methods: [tspr]
+    sparsities: [0.9]
+    flops_reductions: [null]
+    dataset:
+      name: cifar10
+      data_dir: outputs/thesis_real_data
+      download: false
+      num_classes: 10
+      image_size: 32
+      batch_size: 16
+      num_workers: 0
+      train_subset_size: 64
+      val_subset_size: 32
+    optimizer:
+      name: sgd
+      lr: 0.01
+      momentum: 0.9
+      weight_decay: 0.0005
+    scheduler:
+      name: cosine
+    training:
+      epochs: 2
+      max_train_batches: 2
+      max_val_batches: 2
+      eval_interval: 1
+      checkpoint_interval: 1
+
+  full:
+    device: auto
+    seeds: [1, 2, 3, 4, 5]
+    models: [resnet18, vgg16_bn, resnet34, mobilenetv2, vit_tiny]
+    scorers: [snip, grasp, synflow, ep]
+    methods: [standard, tspr, tost, repair, rigl]
+    sparsities: [0.9, 0.95, 0.98]
+    flops_reductions: [null]
+    datasets:
+      - {name: cifar10, data_dir: data, num_classes: 10, image_size: 32, batch_size: 128, num_workers: 4}
+      - {name: cifar100, data_dir: data, num_classes: 100, image_size: 32, batch_size: 128, num_workers: 4}
+      - {name: tiny_imagenet, data_dir: data, num_classes: 200, image_size: 64, batch_size: 128, num_workers: 4}
+    optimizer:
+      name: sgd
+      lr: 0.1
+      momentum: 0.9
+      weight_decay: 0.0005
+    scheduler:
+      name: cosine
+    training:
+      epochs: 200
+      eval_interval: 1
+      checkpoint_interval: 50

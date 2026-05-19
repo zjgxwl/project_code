@@ -1,4 +1,4 @@
-"""Run a minimal baseline training smoke test."""
+"""Run a minimal baseline training validation."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def build_optimizer(model: nn.Module, config: dict[str, Any]) -> torch.optim.Opt
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a minimal baseline training smoke test.")
+    parser = argparse.ArgumentParser(description="Run a minimal baseline training validation.")
     parser.add_argument("--config", type=Path, required=True, help="Path to a YAML config file.")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/runs"), help="Directory for saved metrics.")
     parser.add_argument("--run-name", type=str, default=None, help="Optional metrics run name.")
@@ -104,7 +104,6 @@ def main() -> None:
                 "scorer": None,
                 "device": str(device),
                 "seed": int(config.get("seed", 42)),
-                "use_fake_data": bool(config.get("dataset", {}).get("use_fake_data", config.get("use_fake_data", True))),
                 "fast_dev_run": bool(config.get("fast_dev_run", False)),
                 "timestamp": get_timestamp(),
                 **dataset_record_fields(config),

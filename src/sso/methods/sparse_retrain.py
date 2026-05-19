@@ -8,16 +8,18 @@ import torch
 from torch import nn
 
 from sso.pruning import apply_mask_to_model, masked_state_dict
+from .base import BaseSparseMethod
 
 
-class StandardSparseRetrainingMethod:
-    """Fixed-mask sparse retraining baseline.
+class StandardSparseRetrainingMethod(BaseSparseMethod):
+    """Standard fixed-mask sparse retraining sanity baseline.
 
     The pruning masks are fixed method state. They are not model parameters and
     do not participate in gradient updates.
     """
 
     def __init__(self, model: nn.Module, mask_dict: Mapping[str, torch.Tensor]) -> None:
+        super().__init__(config={"name": "standard_sparse_retrain"})
         self.model = model
         self.mask_dict = {
             name: mask.detach().clone().requires_grad_(False)
@@ -70,6 +72,9 @@ class StandardSparseRetrainingMethod:
         """Return cloned fixed masks owned by this method."""
         return {name: mask.detach().clone() for name, mask in self.mask_dict.items()}
 
-    def state_dict(self) -> dict[str, torch.Tensor]:
+    def state_dict(self) -> dict[str, object]:
         """Return method state only: fixed masks, not ``model.state_dict()``."""
-        return self.mask_state_dict()
+        return {
+            "name": "standard_sparse_retrain",
+            "mask_dict": self.mask_state_dict(),
+        }
